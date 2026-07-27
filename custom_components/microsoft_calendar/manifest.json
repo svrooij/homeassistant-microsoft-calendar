@@ -7,5 +7,5 @@
   "documentation": "https://github.com/svrooij/homeassistant-microsoft-calendar",
   "issue_tracker": "https://github.com/svrooij/homeassistant-microsoft-calendar/issues",
   "integration_type": "service",
-  "version": "0.0.0"
+  "version": "0.1.0"
 }
