@@ -98,7 +98,7 @@ def _parse_graph_datetime(
 
         try:
             tz = ZoneInfo(tz_name) if tz_name else timezone.utc
-        except ZoneInfoNotFoundError:
+        except (ZoneInfoNotFoundError, ValueError):
             _LOGGER.debug(
                 "Unknown timezone %r from Microsoft Graph, falling back to UTC",
                 tz_name,

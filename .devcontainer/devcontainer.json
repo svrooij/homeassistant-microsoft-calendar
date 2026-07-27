@@ -1,7 +1,7 @@
 {
   "name": "microsoft-calendar",
   "image": "mcr.microsoft.com/devcontainers/python:3.14-bookworm",
-  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && pip3 install --user -r requirements.txt",
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && pip3 install --user -r requirements.txt -r requirements_test.txt",
   "forwardPorts": [
     8123
   ],
