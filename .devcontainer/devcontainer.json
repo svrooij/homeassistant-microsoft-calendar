@@ -1,0 +1,13 @@
+{
+  "name": "microsoft-calendar",
+  "image": "ghcr.io/home-assistant/devcontainer:stable",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "redhat.vscode-yaml"
+      ]
+    }
+  }
+}
