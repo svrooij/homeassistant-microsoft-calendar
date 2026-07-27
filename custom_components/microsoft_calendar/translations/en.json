@@ -5,7 +5,10 @@
     "config": {
         "step": {
             "pick_implementation": {
-                "title": "Authenticate with Microsoft"
+                "title": "Authenticate with Microsoft",
+                "data": {
+                    "implementation": "Pick your credential"
+                }
             },
             "reauth_confirm": {
                 "title": "Re-authenticate with Microsoft",

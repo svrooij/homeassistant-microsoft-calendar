@@ -10,7 +10,7 @@ homeassistant:
   unit_system: metric
   currency: EUR
 
-lovelace:
+my:
 
 logger:
   default: warning

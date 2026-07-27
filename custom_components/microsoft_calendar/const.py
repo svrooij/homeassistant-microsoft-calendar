@@ -11,7 +11,7 @@ OAUTH2_AUTHORIZE = "https://login.microsoftonline.com/common/oauth2/v2.0/authori
 OAUTH2_TOKEN = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
 # Scopes requested during authorization
-SCOPES = ["openid", "offline_access", "Calendars.ReadBasic"]
+SCOPES = ["openid", "offline_access", "profile", "Calendars.ReadBasic"]
 
 # Microsoft Graph REST API
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
