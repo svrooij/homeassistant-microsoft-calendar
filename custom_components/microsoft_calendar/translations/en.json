@@ -1,0 +1,22 @@
+{
+    "application_credentials": {
+        "description": "Register a **public client** app in the [Azure portal]({azure_url}).\n\n1. Go to **Authentication \u2192 Platform configurations** and add a **Mobile and desktop application** redirect URI: `{redirect_url}`\n2. Under **API permissions** add delegated permissions: `offline_access`, `openid`, `Calendars.ReadBasic`\n3. Under **Authentication** enable **Allow public client flows**\n\nEnter the **Application (client) ID** below. This integration uses PKCE and does not require a client secret \u2014 enter any placeholder value (e.g. `not-used`) in the **Client Secret** field."
+    },
+    "config": {
+        "step": {
+            "pick_implementation": {
+                "title": "Authenticate with Microsoft"
+            },
+            "reauth_confirm": {
+                "title": "Re-authenticate with Microsoft",
+                "description": "Your Microsoft credentials have expired. Click **Submit** to sign in again."
+            }
+        },
+        "abort": {
+            "already_configured": "Account is already configured.",
+            "oauth_error": "An error occurred during OAuth2 authentication.",
+            "reauth_successful": "Re-authentication was successful.",
+            "wrong_account": "The account used to re-authenticate does not match the configured account."
+        }
+    }
+}

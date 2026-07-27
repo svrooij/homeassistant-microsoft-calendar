@@ -4,8 +4,15 @@
   "codeowners": [
     "@svrooij"
   ],
+  "config_flow": true,
+  "dependencies": [
+    "application_credentials",
+    "calendar"
+  ],
   "documentation": "https://github.com/svrooij/homeassistant-microsoft-calendar",
-  "issue_tracker": "https://github.com/svrooij/homeassistant-microsoft-calendar/issues",
   "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/svrooij/homeassistant-microsoft-calendar/issues",
+  "requirements": [],
   "version": "0.1.0"
 }
