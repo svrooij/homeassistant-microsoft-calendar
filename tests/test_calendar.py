@@ -89,7 +89,7 @@ def test_timed_event_mapping():
     ev = _graph_event_to_calendar_event(raw)
     assert ev is not None
     assert ev.summary == "Team meeting"
-    assert ev.uid == "ical-1"
+    assert ev.uid == "event-1"
     assert isinstance(ev.start, datetime)
     assert isinstance(ev.end, datetime)
     assert ev.location == "Room 1"
