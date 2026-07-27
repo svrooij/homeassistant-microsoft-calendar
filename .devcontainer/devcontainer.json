@@ -1,8 +1,10 @@
 {
   "name": "microsoft-calendar",
-  "image": "mcr.microsoft.com/devcontainers/python:0-3.14",
-  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && git config --global user.email \"${localEnv:GIT_EMAIL}\" && git config --global user.name \"${localEnv:GIT_NAME}\" && pip3 install --user -r requirements_dev.txt",
-  "forwardPorts": [8123],
+  "image": "mcr.microsoft.com/devcontainers/python:3.14-bookworm",
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && pip3 install --user -r requirements.txt",
+  "forwardPorts": [
+    8123
+  ],
   "portsAttributes": {
     "8123": {
       "label": "Home Assistant",
@@ -14,7 +16,7 @@
       "extensions": [
         "charliermarsh.ruff",
         "ms-python.python",
-				"ms-python.pylint",
+        "ms-python.pylint",
         "ms-python.vscode-pylance",
         "redhat.vscode-yaml"
       ],
@@ -32,15 +34,15 @@
         },
         "python.analysis.autoSearchPaths": false,
         "terminal.integrated.defaultProfile.linux": "bash",
-				"terminal.integrated.profiles.linux": {
-					"bash": {
-						"path": "bash",
-						"icon": "terminal-bash"
-					}
-				},
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "bash",
+            "icon": "terminal-bash"
+          }
+        },
         "python.analysis.extraPaths": [
-					"/home/vscode/.local/lib/python3.14/site-packages/"
-				],
+          "/home/vscode/.local/lib/python3.14/site-packages/"
+        ],
         "python.defaultInterpreterPath": "/usr/bin/python3"
       }
     }

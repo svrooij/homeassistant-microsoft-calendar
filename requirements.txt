@@ -1,3 +1,14 @@
 pip>=21.3.1
 colorlog==6.10.1
 homeassistant==2026.6.4
+numpy
+aiohasupervisor
+mutagen
+radios
+gtts
+hassil
+home-assistant-intents
+pymicro_vad
+pyspeex_noise
+aiohttp_fast_zlib
+isal

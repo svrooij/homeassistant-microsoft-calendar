@@ -1,0 +1,18 @@
+# Minimal config for testing the custom component
+# default_config is intentionally omitted — it pulls in stream/ffmpeg dependencies
+
+homeassistant:
+  name: Home
+  time_zone: Europe/Amsterdam
+  latitude: 51.9225
+  longitude: 4.4791
+  elevation: 0
+  unit_system: metric
+  currency: EUR
+
+lovelace:
+
+logger:
+  default: warning
+  logs:
+    custom_components.microsoft_calendar: debug

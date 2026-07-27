@@ -1,0 +1,14 @@
+{
+  "features": {
+    "ghcr.io/devcontainers-extra/features/apt-packages:1": {
+      "version": "1.0.6",
+      "resolved": "ghcr.io/devcontainers-extra/features/apt-packages@sha256:55c54412112da81b9381e470cdbbe55278564950d1ff536ce925b1e8e096babd",
+      "integrity": "sha256:55c54412112da81b9381e470cdbbe55278564950d1ff536ce925b1e8e096babd"
+    },
+    "ghcr.io/devcontainers-extra/features/pylint:2": {
+      "version": "2.0.18",
+      "resolved": "ghcr.io/devcontainers-extra/features/pylint@sha256:c5aa6c40c6f98d86b8faa06900755243d31fb5bb173fd24ba2b07c2139b361c4",
+      "integrity": "sha256:c5aa6c40c6f98d86b8faa06900755243d31fb5bb173fd24ba2b07c2139b361c4"
+    }
+  }
+}
