@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write # needed to create the GitHub Release
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements_test.txt
+
+      - name: Install test dependencies
+        run: pip install -r requirements_test.txt
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+      - name: Extract version from tag
+        id: version
+        # Strip the leading 'v' so v0.1.0 → 0.1.0
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Inject version into manifest.json
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib
+          p = pathlib.Path("custom_components/microsoft_calendar/manifest.json")
+          m = json.loads(p.read_text())
+          m["version"] = os.environ["VERSION"]
+          p.write_text(json.dumps(m, indent=2) + "\n")
+          EOF
+
+      - name: Create release zip
+        # HACS expects integration files at the root of the zip (not nested
+        # in a subdirectory), so we zip from inside the integration folder.
+        run: |
+          (cd custom_components/microsoft_calendar && zip -r "$GITHUB_WORKSPACE/microsoft_calendar.zip" .)
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: microsoft_calendar.zip
+          generate_release_notes: true
