@@ -4,6 +4,15 @@
     },
     "config": {
         "step": {
+            "scope": {
+                "title": "Calendar access level",
+                "data": {
+                    "calendar_scope": "What access level do you want to request?"
+                },
+                "data_description": {
+                    "calendar_scope": "Choose the permissions this integration will request. Read-only is recommended unless you need to create or modify events."
+                }
+            },
             "pick_implementation": {
                 "title": "Authenticate with Microsoft",
                 "data": {

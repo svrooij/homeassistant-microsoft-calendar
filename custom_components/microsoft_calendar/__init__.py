@@ -5,7 +5,7 @@ from __future__ import annotations
 from .application_credentials import MicrosoftCalendarOAuth2Implementation
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.helpers import config_entry_oauth2_flow, config_validation as cv
 from homeassistant.helpers.config_entry_oauth2_flow import (
     OAuth2Session,
 )
@@ -23,6 +23,8 @@ from .const import (
 from .coordinator import MicrosoftCalendarCoordinator
 
 PLATFORMS: list[str] = ["calendar"]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
