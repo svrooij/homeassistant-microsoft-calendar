@@ -7,15 +7,31 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from homeassistant.components.calendar import CalendarEntity, CalendarEvent
+from homeassistant.components.calendar import (
+    CalendarEntity,
+    CalendarEntityFeature,
+    CalendarEvent,
+    EVENT_DESCRIPTION,
+    EVENT_END,
+    EVENT_LOCATION,
+    EVENT_START,
+    EVENT_SUMMARY,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .api import MicrosoftGraphClient, MicrosoftGraphError
-from .const import DATA_CLIENT, DATA_COORDINATOR, DOMAIN
+from .const import (
+    CALENDAR_SCOPE_WRITE,
+    CONF_CALENDAR_SCOPE,
+    DATA_CLIENT,
+    DATA_COORDINATOR,
+    DOMAIN,
+)
 from .coordinator import MicrosoftCalendarCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -140,7 +156,7 @@ def _graph_event_to_calendar_event(raw: dict[str, Any]) -> CalendarEvent | None:
         )
 
         return CalendarEvent(
-            uid=raw.get("iCalUId") or raw.get("id"),
+            uid=raw.get("id"),
             summary=raw.get("subject") or "(no title)",
             start=start_val,
             end=end_val,
@@ -150,6 +166,41 @@ def _graph_event_to_calendar_event(raw: dict[str, Any]) -> CalendarEvent | None:
     except (KeyError, ValueError) as err:
         _LOGGER.debug("Could not parse Graph event %s: %s", raw.get("id"), err)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Graph payload helpers
+# ---------------------------------------------------------------------------
+
+_RECURRING_TYPES = frozenset({"occurrence", "exception", "seriesMaster"})
+
+
+def _dt_to_graph(value: datetime | date) -> dict[str, str]:
+    """Convert a Python datetime/date to a Microsoft Graph dateTime object."""
+    if isinstance(value, datetime):
+        utc = value.astimezone(timezone.utc)
+        return {"dateTime": utc.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "UTC"}
+    # All-day: date only, no time component
+    return {"dateTime": f"{value.isoformat()}T00:00:00", "timeZone": "UTC"}
+
+
+def _event_kwargs_to_graph(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Convert HA calendar event kwargs/dict to a Microsoft Graph event payload."""
+    start: datetime | date = kwargs[EVENT_START]
+    end: datetime | date = kwargs[EVENT_END]
+    is_all_day = isinstance(start, date) and not isinstance(start, datetime)
+
+    payload: dict[str, Any] = {
+        "subject": kwargs[EVENT_SUMMARY],
+        "isAllDay": is_all_day,
+        "start": _dt_to_graph(start),
+        "end": _dt_to_graph(end),
+    }
+    if description := kwargs.get(EVENT_DESCRIPTION):
+        payload["body"] = {"contentType": "text", "content": description}
+    if location := kwargs.get(EVENT_LOCATION):
+        payload["location"] = {"displayName": location}
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -173,15 +224,29 @@ class MicrosoftCalendarEntity(
     ) -> None:
         super().__init__(coordinator)
         self._client = client
+        self._entry = entry
         self._calendar_id: str = calendar_data["id"]
         self._attr_unique_id = f"{entry.entry_id}_{self._calendar_id}"
         self._attr_name: str = calendar_data.get("name", "Microsoft Calendar")
+        self._can_edit: bool = bool(calendar_data.get("canEdit", False))
 
         # Prefix the hex colour with '#' if Microsoft omitted it.
         raw_color: str = calendar_data.get("hexColor") or ""
         if raw_color and not raw_color.startswith("#"):
             raw_color = f"#{raw_color}"
         self._attr_initial_color: str | None = raw_color or None
+
+        # Enable write features only when the user chose ReadWrite scope
+        # and Microsoft reports the calendar as editable.
+        if (
+            self._can_edit
+            and entry.data.get(CONF_CALENDAR_SCOPE) == CALENDAR_SCOPE_WRITE
+        ):
+            self._attr_supported_features = (
+                CalendarEntityFeature.CREATE_EVENT
+                | CalendarEntityFeature.DELETE_EVENT
+                | CalendarEntityFeature.UPDATE_EVENT
+            )
 
         # Current / next upcoming event, refreshed on each coordinator update.
         self._event: CalendarEvent | None = None
@@ -250,3 +315,44 @@ class MicrosoftCalendarEntity(
         """Fetch the initial next-event when the entity is first added."""
         await super().async_added_to_hass()
         await self._async_refresh_next_event()
+
+    # ------------------------------------------------------------------
+    # Write operations
+    # ------------------------------------------------------------------
+
+    async def _async_guard_not_recurring(self, uid: str) -> None:
+        """Raise HomeAssistantError if the event is part of a recurring series."""
+        raw = await self._client.async_get_event(uid)
+        event_type: str = raw.get("type", "singleInstance")
+        if event_type != "singleInstance":
+            raise HomeAssistantError(
+                f"Cannot modify recurring events (type={event_type!r}). "
+                "Edit the series in Outlook or the Microsoft calendar app."
+            )
+
+    async def async_create_event(self, **kwargs: Any) -> None:
+        """Create a new single event in this calendar."""
+        payload = _event_kwargs_to_graph(kwargs)
+        await self._client.async_create_event(self._calendar_id, payload)
+
+    async def async_update_event(
+        self,
+        uid: str,
+        event: dict[str, Any],
+        recurrence_id: str | None = None,
+        recurrence_range: str | None = None,
+    ) -> None:
+        """Update an existing event, blocking modifications to recurring events."""
+        await self._async_guard_not_recurring(uid)
+        payload = _event_kwargs_to_graph(event)
+        await self._client.async_update_event(uid, payload)
+
+    async def async_delete_event(
+        self,
+        uid: str,
+        recurrence_id: str | None = None,
+        recurrence_range: str | None = None,
+    ) -> None:
+        """Delete an event, blocking deletion of recurring events."""
+        await self._async_guard_not_recurring(uid)
+        await self._client.async_delete_event(uid)

@@ -1,6 +1,7 @@
 """Application credentials for Microsoft Calendar (PKCE, no client secret)."""
 
 from __future__ import annotations
+
 from typing import override
 
 from homeassistant.components.application_credentials import ClientCredential
@@ -29,7 +30,7 @@ class MicrosoftCalendarOAuth2Implementation(LocalOAuth2ImplementationWithPkce):
     @property
     @override
     def extra_authorize_data(self) -> dict:
-        """Append required scopes to the authorize URL."""
+        """Append all required scopes; the config flow may override with the user's choice."""
         return super().extra_authorize_data | {
             "scope": " ".join(SCOPES),
         }

@@ -7,10 +7,23 @@ import json
 import logging
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.config_entries import SOURCE_REAUTH
 from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
-from .const import DOMAIN
+from .const import (
+    CALENDAR_SCOPE_READ,
+    CALENDAR_SCOPE_WRITE,
+    CONF_CALENDAR_SCOPE,
+    DOMAIN,
+    SCOPES_BASE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,10 +52,58 @@ class MicrosoftCalendarFlowHandler(
 
     DOMAIN = DOMAIN
 
+    def __init__(self) -> None:
+        """Initialise the flow."""
+        super().__init__()
+        self._calendar_scope: str = CALENDAR_SCOPE_READ
+
+    @property
+    def extra_authorize_data(self) -> dict:
+        """Append the user-selected calendar scope to the authorize URL."""
+        return {"scope": " ".join(SCOPES_BASE + [self._calendar_scope])}
+
+    def is_matching(self, other_flow: Any) -> bool:
+        """Not used — this integration is not discoverable."""
+        return False
+
     @property
     def logger(self) -> logging.Logger:
         """Return logger."""
         return _LOGGER
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Start the flow by asking the user to choose a calendar access level."""
+        return await self.async_step_scope()
+
+    async def async_step_scope(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Ask the user which calendar permission level they want."""
+        if user_input is None:
+            return self.async_show_form(
+                step_id="scope",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_CALENDAR_SCOPE, default=CALENDAR_SCOPE_READ
+                        ): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[
+                                    SelectOptionDict(
+                                        value=CALENDAR_SCOPE_READ,
+                                        label="Read-only (Calendars.ReadBasic)",
+                                    ),
+                                    SelectOptionDict(
+                                        value=CALENDAR_SCOPE_WRITE,
+                                        label="Read & write (Calendars.ReadWrite)",
+                                    ),
+                                ],
+                                mode=SelectSelectorMode.LIST,
+                            )
+                        )
+                    }
+                ),
+            )
+        self._calendar_scope = user_input[CONF_CALENDAR_SCOPE]
+        return await self.async_step_pick_implementation()
 
     async def async_oauth_create_entry(self, data: dict[str, Any]) -> Any:
         """Finalise the config entry after a successful OAuth2 flow.
@@ -74,14 +135,19 @@ class MicrosoftCalendarFlowHandler(
         if self.source == SOURCE_REAUTH:
             self._abort_if_unique_id_mismatch(reason="wrong_account")
             return self.async_update_reload_and_abort(
-                self._get_reauth_entry(), data=data
+                self._get_reauth_entry(),
+                data={**data, CONF_CALENDAR_SCOPE: self._calendar_scope},
             )
 
         self._abort_if_unique_id_configured()
-        return self.async_create_entry(title=display_name, data=data)
+        return self.async_create_entry(
+            title=display_name,
+            data={**data, CONF_CALENDAR_SCOPE: self._calendar_scope},
+        )
 
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> Any:
-        """Start re-authentication when the token has expired or been revoked."""
+        """Start re-authentication; preserve the existing calendar scope."""
+        self._calendar_scope = entry_data.get(CONF_CALENDAR_SCOPE, CALENDAR_SCOPE_READ)
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -90,4 +156,4 @@ class MicrosoftCalendarFlowHandler(
         """Show a confirmation form before restarting the OAuth2 flow."""
         if user_input is None:
             return self.async_show_form(step_id="reauth_confirm")
-        return await self.async_step_user()
+        return await self.async_step_pick_implementation()

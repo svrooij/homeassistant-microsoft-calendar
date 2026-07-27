@@ -16,7 +16,9 @@ _LOGGER = logging.getLogger(__name__)
 _CALENDAR_SELECT = "id,name,hexColor,canEdit,isDefaultCalendar"
 
 # Fields fetched for each event in a calendarView request
-_EVENT_SELECT = "id,iCalUId,subject,start,end,location,bodyPreview,isAllDay,sensitivity"
+_EVENT_SELECT = (
+    "id,iCalUId,subject,start,end,location,bodyPreview,isAllDay,sensitivity,type"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +103,7 @@ class MicrosoftGraphClient:
                 f"HTTP {resp.status} calling {method} {url}: {body[:200]}"
             )
 
-        return await resp.json()
+        return await resp.json() if resp.content_length else None
 
     async def _get_all_pages(self, path: str, **kwargs: Any) -> list[dict[str, Any]]:
         """Collect all items from a paged Graph response.
@@ -192,3 +194,35 @@ class MicrosoftGraphClient:
                 "$orderby": "start/dateTime",
             },
         )
+
+    async def async_get_event(self, event_id: str) -> dict[str, Any]:
+        """Fetch a single event by its Graph event ID."""
+        return await self._request(
+            "GET",
+            f"/me/events/{event_id}",
+            params={"$select": "id,type"},
+        )
+
+    async def async_create_event(
+        self, calendar_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Create a new event in the given calendar."""
+        return await self._request(
+            "POST",
+            f"/me/calendars/{calendar_id}/events",
+            json=payload,
+        )
+
+    async def async_update_event(
+        self, event_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update an existing event (PATCH — only supplied fields are changed)."""
+        return await self._request(
+            "PATCH",
+            f"/me/events/{event_id}",
+            json=payload,
+        )
+
+    async def async_delete_event(self, event_id: str) -> None:
+        """Permanently delete an event."""
+        await self._request("DELETE", f"/me/events/{event_id}")

@@ -10,8 +10,18 @@ DOMAIN = "microsoft_calendar"
 OAUTH2_AUTHORIZE = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 OAUTH2_TOKEN = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
-# Scopes requested during authorization
-SCOPES = ["openid", "offline_access", "profile", "Calendars.ReadBasic"]
+# Scopes always requested (identity + refresh token)
+SCOPES_BASE = ["openid", "offline_access", "profile"]
+
+# Calendar-specific scope options the user can choose between
+CALENDAR_SCOPE_READ = "Calendars.ReadBasic"
+CALENDAR_SCOPE_WRITE = "Calendars.ReadWrite"
+
+# Config entry key that stores the chosen calendar scope
+CONF_CALENDAR_SCOPE = "calendar_scope"
+
+# Default scopes (base + read-only) – used as fallback
+SCOPES = SCOPES_BASE + [CALENDAR_SCOPE_READ]
 
 # Microsoft Graph REST API
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
