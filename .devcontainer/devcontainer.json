@@ -1,7 +1,7 @@
 {
   "name": "microsoft-calendar",
-  "image": "mcr.microsoft.com/devcontainers/base:debian",
-  "postCreateCommand": "scripts/setup",
+  "image": "mcr.microsoft.com/devcontainers/python:0-3.14",
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && git config --global user.email \"${localEnv:GIT_EMAIL}\" && git config --global user.name \"${localEnv:GIT_NAME}\" && pip3 install --user -r requirements_dev.txt",
   "forwardPorts": [8123],
   "portsAttributes": {
     "8123": {
@@ -13,8 +13,8 @@
     "vscode": {
       "extensions": [
         "charliermarsh.ruff",
-        "github.vscode-pull-request-github",
         "ms-python.python",
+				"ms-python.pylint",
         "ms-python.vscode-pylance",
         "redhat.vscode-yaml"
       ],
@@ -29,15 +29,25 @@
         "python.analysis.autoImportCompletions": true,
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
-        }
+        },
+        "python.analysis.autoSearchPaths": false,
+        "terminal.integrated.defaultProfile.linux": "bash",
+				"terminal.integrated.profiles.linux": {
+					"bash": {
+						"path": "bash",
+						"icon": "terminal-bash"
+					}
+				},
+        "python.analysis.extraPaths": [
+					"/home/vscode/.local/lib/python3.14/site-packages/"
+				],
+        "python.defaultInterpreterPath": "/usr/bin/python3"
       }
     }
   },
   "remoteUser": "vscode",
   "features": {
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.14"
-    },
+    "ghcr.io/devcontainers-extra/features/pylint:2": {},
     "ghcr.io/devcontainers-extra/features/apt-packages:1": {
       "packages": "ffmpeg,libturbojpeg0,libpcap-dev"
     }
