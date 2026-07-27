@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from .application_credentials import MicrosoftCalendarOAuth2Implementation
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.config_entry_oauth2_flow import (
-    LocalOAuth2ImplementationWithPkce,
     OAuth2Session,
 )
 from homeassistant.helpers.typing import ConfigType
@@ -35,13 +35,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         config_entry_oauth2_flow.async_register_implementation(
             hass,
             DOMAIN,
-            LocalOAuth2ImplementationWithPkce(
+            MicrosoftCalendarOAuth2Implementation(
                 hass,
                 DOMAIN,
                 DEFAULT_CLIENT_ID,
                 authorize_url=OAUTH2_AUTHORIZE,
                 token_url=OAUTH2_TOKEN,
-                client_secret="",
             ),
         )
     return True

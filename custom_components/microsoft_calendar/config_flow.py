@@ -59,10 +59,11 @@ class MicrosoftCalendarFlowHandler(
         claims = _parse_id_token(id_token)
 
         # oid is the stable object ID for the user in their tenant.
-        # It does not change even when the user's UPN or email changes.
-        oid: str | None = claims.get("oid")
+        # sub is the OIDC subject claim, always present and also stable per app.
+        # Prefer oid (tenant-wide), fall back to sub.
+        oid: str | None = claims.get("oid") or claims.get("sub")
         if not oid:
-            _LOGGER.error("id_token missing 'oid' claim")
+            _LOGGER.error("id_token missing both 'oid' and 'sub' claims")
             return self.async_abort(reason="oauth_error")
 
         upn: str = claims.get("preferred_username") or oid
