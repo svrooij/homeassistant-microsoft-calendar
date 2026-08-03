@@ -31,4 +31,42 @@ jobs:
         run: pip install -r requirements_test.txt
 
       - name: Run tests
-        run: python -m pytest tests/ -v --tb=short
+        run: python -m pytest tests/ -v --tb=short --junit-xml=test-results.xml
+
+      - name: Publish test results
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET, os, pathlib, sys
+          path = pathlib.Path("test-results.xml")
+          if not path.exists():
+              sys.exit(0)
+          suite = ET.parse(path).getroot()
+          if suite.tag != "testsuite":
+              suite = suite.find("testsuite")
+          tests    = int(suite.get("tests",    0))
+          failures = int(suite.get("failures", 0))
+          errors   = int(suite.get("errors",   0))
+          skipped  = int(suite.get("skipped",  0))
+          passed   = tests - failures - errors - skipped
+          rows = []
+          for tc in suite.iter("testcase"):
+              name = f"{tc.get('classname', '')}.{tc.get('name', '')}"
+              if tc.find("failure") is not None or tc.find("error") is not None:
+                  icon = "\u274c"
+              elif tc.find("skipped") is not None:
+                  icon = "\u23ed\ufe0f"
+              else:
+                  icon = "\u2705"
+              rows.append(f"| {icon} | `{name}` |")
+          lines = [
+              "## Test Results",
+              f"**{passed} passed** &nbsp; {failures} failed &nbsp; {skipped} skipped &nbsp; {tests} total",
+              "",
+              "| | Test |",
+              "| --- | --- |",
+              *rows,
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+          EOF
