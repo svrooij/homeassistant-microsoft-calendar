@@ -154,7 +154,7 @@ class MicrosoftGraphClient:
         """
         return await self._get_all_pages(
             "/me/calendars",
-            params={"$select": _CALENDAR_SELECT},
+            params={"$select": _CALENDAR_SELECT, "top": 100},
         )
 
     # ------------------------------------------------------------------
@@ -190,6 +190,7 @@ class MicrosoftGraphClient:
             params={
                 "startDateTime": start_str,
                 "endDateTime": end_str,
+                "top": 100,
                 "$select": _EVENT_SELECT,
                 "$orderby": "start/dateTime",
             },

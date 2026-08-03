@@ -320,16 +320,6 @@ class MicrosoftCalendarEntity(
     # Write operations
     # ------------------------------------------------------------------
 
-    async def _async_guard_not_recurring(self, uid: str) -> None:
-        """Raise HomeAssistantError if the event is part of a recurring series."""
-        raw = await self._client.async_get_event(uid)
-        event_type: str = raw.get("type", "singleInstance")
-        if event_type != "singleInstance":
-            raise HomeAssistantError(
-                f"Cannot modify recurring events (type={event_type!r}). "
-                "Edit the series in Outlook or the Microsoft calendar app."
-            )
-
     async def async_create_event(self, **kwargs: Any) -> None:
         """Create a new single event in this calendar."""
         payload = _event_kwargs_to_graph(kwargs)
@@ -343,7 +333,6 @@ class MicrosoftCalendarEntity(
         recurrence_range: str | None = None,
     ) -> None:
         """Update an existing event, blocking modifications to recurring events."""
-        await self._async_guard_not_recurring(uid)
         payload = _event_kwargs_to_graph(event)
         await self._client.async_update_event(uid, payload)
 
@@ -354,5 +343,4 @@ class MicrosoftCalendarEntity(
         recurrence_range: str | None = None,
     ) -> None:
         """Delete an event, blocking deletion of recurring events."""
-        await self._async_guard_not_recurring(uid)
         await self._client.async_delete_event(uid)

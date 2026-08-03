@@ -17,11 +17,15 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
+from .application_credentials import MicrosoftCalendarOAuth2Implementation
 from .const import (
     CALENDAR_SCOPE_READ,
     CALENDAR_SCOPE_WRITE,
     CONF_CALENDAR_SCOPE,
+    DEFAULT_CLIENT_ID,
     DOMAIN,
+    OAUTH2_AUTHORIZE,
+    OAUTH2_TOKEN,
     SCOPES_BASE,
 )
 
@@ -74,6 +78,30 @@ class MicrosoftCalendarFlowHandler(
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         """Start the flow by asking the user to choose a calendar access level."""
         return await self.async_step_scope()
+
+    async def async_step_pick_implementation(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        """Register the built-in implementation if needed, then proceed normally.
+
+        async_setup is only called during HA startup (when a config entry already
+        exists), NOT when a brand-new config flow is started for the first time.
+        Registering here ensures the built-in credential is always available
+        regardless of whether async_setup has run yet.
+        """
+        if DEFAULT_CLIENT_ID:
+            config_entry_oauth2_flow.async_register_implementation(
+                self.hass,
+                DOMAIN,
+                MicrosoftCalendarOAuth2Implementation(
+                    self.hass,
+                    DOMAIN,
+                    DEFAULT_CLIENT_ID,
+                    authorize_url=OAUTH2_AUTHORIZE,
+                    token_url=OAUTH2_TOKEN,
+                ),
+            )
+        return await super().async_step_pick_implementation(user_input)
 
     async def async_step_scope(self, user_input: dict[str, Any] | None = None) -> Any:
         """Ask the user which calendar permission level they want."""

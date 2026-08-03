@@ -49,8 +49,9 @@ jobs:
       - name: Create release zip
         # HACS expects integration files at the root of the zip (not nested
         # in a subdirectory), so we zip from inside the integration folder.
+        # Exclude Python bytecode artifacts generated during the test run above.
         run: |
-          (cd custom_components/microsoft_calendar && zip -r "$GITHUB_WORKSPACE/microsoft_calendar.zip" .)
+          (cd custom_components/microsoft_calendar && zip -r "$GITHUB_WORKSPACE/microsoft_calendar.zip" . -x "*__pycache__*" -x "*.pyc" -x "*.pyo")
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
