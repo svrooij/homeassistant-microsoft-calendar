@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 import voluptuous as vol
@@ -90,6 +91,7 @@ class MicrosoftCalendarFlowHandler(
         regardless of whether async_setup has run yet.
         """
         if DEFAULT_CLIENT_ID:
+            _LOGGER.debug("Registering built-in credentials")
             config_entry_oauth2_flow.async_register_implementation(
                 self.hass,
                 DOMAIN,
@@ -146,6 +148,14 @@ class MicrosoftCalendarFlowHandler(
             return self.async_abort(reason="oauth_error")
 
         claims = _parse_id_token(id_token)
+
+        # Log token expiry so users can diagnose expiration issues.
+        token_expires_at: int | None = data.get("token", {}).get("expires_at")
+        if token_expires_at is not None:
+            _LOGGER.debug(
+                "Token valid until %s",
+                datetime.fromtimestamp(token_expires_at, tz=timezone.utc).isoformat(),
+            )
 
         # oid is the stable object ID for the user in their tenant.
         # sub is the OIDC subject claim, always present and also stable per app.
