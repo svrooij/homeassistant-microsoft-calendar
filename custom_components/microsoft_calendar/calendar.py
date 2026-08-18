@@ -323,6 +323,11 @@ class MicrosoftCalendarEntity(
     async def async_create_event(self, **kwargs: Any) -> None:
         """Create a new single event in this calendar."""
         payload = _event_kwargs_to_graph(kwargs)
+        _LOGGER.debug(
+            "Adding event %s to calendar %s",
+            kwargs.get(EVENT_SUMMARY),
+            self._calendar_id,
+        )
         await self._client.async_create_event(self._calendar_id, payload)
 
     async def async_update_event(

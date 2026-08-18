@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from .application_credentials import MicrosoftCalendarOAuth2Implementation
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -22,6 +24,8 @@ from .const import (
 )
 from .coordinator import MicrosoftCalendarCoordinator
 
+_LOGGER = logging.getLogger(__name__)
+
 PLATFORMS: list[str] = ["calendar"]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -34,6 +38,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     via Settings → Devices & services → Application Credentials instead.
     """
     if DEFAULT_CLIENT_ID:
+        _LOGGER.debug("Registering built-in credentials")
         config_entry_oauth2_flow.async_register_implementation(
             hass,
             DOMAIN,
@@ -55,6 +60,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass, entry
         )
     )
+    # Log whether the built-in or a custom app registration is in use.
+    if isinstance(implementation, MicrosoftCalendarOAuth2Implementation):
+        if implementation.client_id == DEFAULT_CLIENT_ID:
+            _LOGGER.info("Integration started with built-in app")
+        else:
+            _LOGGER.info(
+                "Integration started with custom app (client_id: %s...)",
+                implementation.client_id[:8],
+            )
+    else:
+        _LOGGER.info("Integration started with custom app")
     oauth_session = OAuth2Session(hass, entry, implementation)
     client = MicrosoftGraphClient(oauth_session)
 

@@ -185,6 +185,7 @@ class MicrosoftGraphClient:
         start_str = start_dt.isoformat()
         end_str = end_dt.isoformat()
 
+        _LOGGER.debug("Loading events from calendar %s", calendar_id)
         return await self._get_all_pages(
             f"/me/calendars/{calendar_id}/calendarView",
             params={

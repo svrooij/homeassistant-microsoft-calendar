@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
 from typing import override
 
 from homeassistant.components.application_credentials import ClientCredential
@@ -15,6 +17,8 @@ from homeassistant.helpers.config_entry_oauth2_flow import (
 
 from .const import DEFAULT_CLIENT_ID, OAUTH2_AUTHORIZE, OAUTH2_TOKEN, SCOPES
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class MicrosoftCalendarOAuth2Implementation(LocalOAuth2ImplementationWithPkce):
     """OAuth2 implementation for Microsoft Calendar with PKCE and scopes."""
@@ -25,7 +29,7 @@ class MicrosoftCalendarOAuth2Implementation(LocalOAuth2ImplementationWithPkce):
         """Return a human-readable name that distinguishes built-in from custom credentials."""
         if self.client_id == DEFAULT_CLIENT_ID:
             return "Microsoft Calendar (Built-in app)"
-        return f"Microsoft Calendar ({self.client_id[:8]}…)"
+        return f"Microsoft Calendar ({self.client_id[:8]}...)"
 
     @property
     @override
@@ -34,6 +38,20 @@ class MicrosoftCalendarOAuth2Implementation(LocalOAuth2ImplementationWithPkce):
         return super().extra_authorize_data | {
             "scope": " ".join(SCOPES),
         }
+
+    @override
+    async def async_refresh_token(self, token: dict) -> dict:
+        """Refresh the access token and log the new expiry."""
+        new_token = await super().async_refresh_token(token)
+        expires_at: int | None = new_token.get("expires_at")
+        if expires_at is not None:
+            _LOGGER.debug(
+                "Token refreshed; valid until %s",
+                datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+            )
+        else:
+            _LOGGER.debug("Token refreshed")
+        return new_token
 
 
 async def async_get_auth_implementation(
