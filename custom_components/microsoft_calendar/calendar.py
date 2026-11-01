@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -24,7 +26,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .api import MicrosoftGraphClient, MicrosoftGraphError
+from .api import (
+    MicrosoftGraphClient,
+    MicrosoftGraphError,
+    MicrosoftGraphRateLimitError,
+)
 from .const import (
     CALENDAR_SCOPE_WRITE,
     CONF_CALENDAR_SCOPE,
@@ -38,6 +44,13 @@ _LOGGER = logging.getLogger(__name__)
 
 # How far ahead to look when determining the current/next event for the state.
 _NEXT_EVENT_LOOKAHEAD = timedelta(days=1)
+
+# How long fetched events are reused before Graph is asked again. Calendar
+# cards on several open dashboards request the same range repeatedly; without
+# this every redraw is a Graph call and the account gets throttled (HTTP 429).
+_EVENT_CACHE_TTL_SECONDS = 300
+# Maximum number of distinct date ranges cached per calendar.
+_EVENT_CACHE_MAX_ENTRIES = 16
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +264,14 @@ class MicrosoftCalendarEntity(
         # Current / next upcoming event, refreshed on each coordinator update.
         self._event: CalendarEvent | None = None
 
+        # Short-lived cache of fetched events, keyed by requested range.
+        # Value: (fetched_at monotonic seconds, range start, range end, events)
+        self._event_cache: dict[
+            tuple[str, str], tuple[float, datetime, datetime, list[CalendarEvent]]
+        ] = {}
+        # Serialises fetches so concurrent identical requests share one call.
+        self._fetch_lock = asyncio.Lock()
+
     # ------------------------------------------------------------------
     # State
     # ------------------------------------------------------------------
@@ -266,24 +287,104 @@ class MicrosoftCalendarEntity(
         # Trigger an async task — we can't await in a callback.
         self.hass.async_create_task(self._async_refresh_next_event())
 
+    # ------------------------------------------------------------------
+    # Event fetching with cache and throttle fallback
+    # ------------------------------------------------------------------
+
+    def _cached_events_covering(
+        self, start: datetime, end: datetime, max_age: float | None = None
+    ) -> list[CalendarEvent] | None:
+        """Return events for [start, end) from the newest cached wider range.
+
+        With max_age, only cache entries younger than that are considered;
+        without it, any age is accepted (used as a fallback while throttled,
+        so the calendar keeps showing the last known events).
+        """
+        now = time.monotonic()
+        best: tuple[float, list[CalendarEvent]] | None = None
+        for fetched_at, c_start, c_end, events in self._event_cache.values():
+            if max_age is not None and now - fetched_at >= max_age:
+                continue
+            if c_start <= start and c_end >= end and (
+                best is None or fetched_at > best[0]
+            ):
+                best = (fetched_at, events)
+        if best is None:
+            return None
+        return [
+            ev
+            for ev in best[1]
+            if ev.end_datetime_local > start and ev.start_datetime_local < end
+        ]
+
+    async def _async_fetch_events(
+        self, start: datetime, end: datetime
+    ) -> list[CalendarEvent]:
+        """Fetch events for a range, reusing fresh cached data when present.
+
+        Raises MicrosoftGraphError if Graph fails and no cached data can
+        stand in for the request.
+        """
+        key = (start.isoformat(), end.isoformat())
+        async with self._fetch_lock:
+            now = time.monotonic()
+            cached = self._event_cache.get(key)
+            if cached and now - cached[0] < _EVENT_CACHE_TTL_SECONDS:
+                return cached[3]
+            # A fresh, wider range already fetched (e.g. the month view)
+            # can answer this request without calling Graph.
+            if (
+                fresh := self._cached_events_covering(
+                    start, end, _EVENT_CACHE_TTL_SECONDS
+                )
+            ) is not None:
+                return fresh
+
+            try:
+                raw_events = await self._client.async_list_calendar_events(
+                    self._calendar_id, start, end
+                )
+            except MicrosoftGraphRateLimitError:
+                if cached:
+                    return cached[3]
+                if (fallback := self._cached_events_covering(start, end)) is not None:
+                    return fallback
+                raise
+
+            events = [
+                ev
+                for raw in raw_events
+                if (ev := _graph_event_to_calendar_event(raw)) is not None
+            ]
+            self._event_cache[key] = (now, start, end, events)
+            if len(self._event_cache) > _EVENT_CACHE_MAX_ENTRIES:
+                oldest = min(self._event_cache, key=lambda k: self._event_cache[k][0])
+                del self._event_cache[oldest]
+            return events
+
+    async def _async_after_write(self) -> None:
+        """Drop cached events after a change so the next read is fresh."""
+        self._event_cache.clear()
+        await self._async_refresh_next_event()
+
     async def _async_refresh_next_event(self) -> None:
-        """Fetch the nearest upcoming event and update state."""
+        """Find the current or next event and update state.
+
+        The lookup window is aligned to the start of the hour so repeated
+        refreshes reuse one cache entry instead of each calling Graph.
+        """
         now = dt_util.now()
-        end = now + _NEXT_EVENT_LOOKAHEAD
+        start = now.replace(minute=0, second=0, microsecond=0)
+        end = start + _NEXT_EVENT_LOOKAHEAD + timedelta(hours=1)
         try:
-            raw_events = await self._client.async_list_calendar_events(
-                self._calendar_id, now, end
-            )
+            events = await self._async_fetch_events(start, end)
         except MicrosoftGraphError as err:
             _LOGGER.debug("Could not refresh next event for %s: %s", self.name, err)
             return
 
-        events = [
-            ev
-            for raw in raw_events
-            if (ev := _graph_event_to_calendar_event(raw)) is not None
-        ]
-        self._event = events[0] if events else None
+        upcoming = [ev for ev in events if ev.end_datetime_local > now]
+        upcoming.sort(key=lambda ev: ev.start_datetime_local)
+        self._event = upcoming[0] if upcoming else None
         self.async_write_ha_state()
 
     # ------------------------------------------------------------------
@@ -298,18 +399,18 @@ class MicrosoftCalendarEntity(
     ) -> list[CalendarEvent]:
         """Return all calendar events within the requested time range."""
         try:
-            raw_events = await self._client.async_list_calendar_events(
-                self._calendar_id, start_date, end_date
+            return await self._async_fetch_events(start_date, end_date)
+        except MicrosoftGraphRateLimitError as err:
+            _LOGGER.warning(
+                "Microsoft Graph is throttling requests and no cached events are "
+                "available yet for calendar %s: %s",
+                self.name,
+                err,
             )
+            return []
         except MicrosoftGraphError as err:
             _LOGGER.error("Failed to fetch events for calendar %s: %s", self.name, err)
             return []
-
-        return [
-            ev
-            for raw in raw_events
-            if (ev := _graph_event_to_calendar_event(raw)) is not None
-        ]
 
     async def async_added_to_hass(self) -> None:
         """Fetch the initial next-event when the entity is first added."""
@@ -329,6 +430,7 @@ class MicrosoftCalendarEntity(
             self._calendar_id,
         )
         await self._client.async_create_event(self._calendar_id, payload)
+        await self._async_after_write()
 
     async def async_update_event(
         self,
@@ -340,6 +442,7 @@ class MicrosoftCalendarEntity(
         """Update an existing event, blocking modifications to recurring events."""
         payload = _event_kwargs_to_graph(event)
         await self._client.async_update_event(uid, payload)
+        await self._async_after_write()
 
     async def async_delete_event(
         self,
@@ -349,3 +452,4 @@ class MicrosoftCalendarEntity(
     ) -> None:
         """Delete an event, blocking deletion of recurring events."""
         await self._client.async_delete_event(uid)
+        await self._async_after_write()

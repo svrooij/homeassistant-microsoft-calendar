@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from homeassistant.helpers.config_entry_oauth2_flow import OAuth2Session
@@ -19,6 +22,13 @@ _CALENDAR_SELECT = "id,name,hexColor,canEdit,isDefaultCalendar"
 _EVENT_SELECT = (
     "id,iCalUId,subject,start,end,location,bodyPreview,isAllDay,sensitivity,type"
 )
+
+# Fallback back-off when Graph returns 429 without a usable Retry-After header.
+_DEFAULT_RETRY_AFTER = 60
+
+# Outlook allows at most 4 concurrent requests per app per mailbox. Stay under
+# it: several calendars refreshing at once otherwise burst past the cap.
+_MAX_CONCURRENT_REQUESTS = 2
 
 
 # ---------------------------------------------------------------------------
@@ -40,13 +50,31 @@ class MicrosoftGraphAuthError(MicrosoftGraphError):
 class MicrosoftGraphRateLimitError(MicrosoftGraphError):
     """Raised on HTTP 429 — the request was throttled by Microsoft Graph.
 
+    Also raised locally (without a network call) while a previous 429
+    back-off window is still in effect.
+
     Attributes:
         retry_after: Seconds to wait before retrying (from the Retry-After header).
     """
 
-    def __init__(self, message: str, retry_after: int = 60) -> None:
+    def __init__(self, message: str, retry_after: int = _DEFAULT_RETRY_AFTER) -> None:
         super().__init__(message)
         self.retry_after = retry_after
+
+
+def _parse_retry_after(value: str | None) -> int:
+    """Parse a Retry-After header (delta-seconds or HTTP-date) into seconds."""
+    if not value:
+        return _DEFAULT_RETRY_AFTER
+    try:
+        return max(1, int(value))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+        return max(1, int((retry_at - datetime.now(retry_at.tzinfo)).total_seconds()))
+    except (TypeError, ValueError):
+        return _DEFAULT_RETRY_AFTER
 
 
 # ---------------------------------------------------------------------------
@@ -59,10 +87,57 @@ class MicrosoftGraphClient:
 
     Uses an HA OAuth2Session so that access-token refresh is handled
     automatically before every request.
+
+    The client is shared by every calendar entity of a config entry, so the
+    429 back-off window and the concurrency cap apply to the whole account,
+    which matches how Graph applies its limits.
     """
 
     def __init__(self, oauth_session: OAuth2Session) -> None:
         self._session = oauth_session
+        self._throttled_until: float = 0.0
+        self._semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
+
+    # ------------------------------------------------------------------
+    # Throttle handling
+    # ------------------------------------------------------------------
+
+    @property
+    def throttle_remaining(self) -> int:
+        """Seconds left in the current 429 back-off window (0 if none)."""
+        remaining = self._throttled_until - time.monotonic()
+        return int(remaining) + 1 if remaining > 0 else 0
+
+    def _check_throttle(self) -> None:
+        """Raise without calling Graph while a back-off window is active."""
+        if remaining := self.throttle_remaining:
+            raise MicrosoftGraphRateLimitError(
+                f"Throttled by Microsoft Graph; backing off for {remaining}s more",
+                retry_after=remaining,
+            )
+
+    def _start_throttle(self, retry_after: int) -> None:
+        """Record a 429 back-off window."""
+        until = time.monotonic() + retry_after
+        if until > self._throttled_until:
+            self._throttled_until = until
+            _LOGGER.warning(
+                "Microsoft Graph throttled requests (HTTP 429); "
+                "pausing requests for %s seconds",
+                retry_after,
+            )
+
+    async def _send(self, method: str, url: str, **kwargs: Any) -> Any:
+        """Send one request under the concurrency cap and throttle check."""
+        async with self._semaphore:
+            # Re-check after waiting: a 429 may have arrived meanwhile.
+            self._check_throttle()
+            resp = await self._session.async_request(method, url, **kwargs)
+            if resp.status == 429:
+                self._start_throttle(
+                    _parse_retry_after(resp.headers.get("Retry-After"))
+                )
+            return resp
 
     # ------------------------------------------------------------------
     # Low-level helpers
@@ -83,19 +158,19 @@ class MicrosoftGraphClient:
 
         Raises:
             MicrosoftGraphAuthError: HTTP 401.
-            MicrosoftGraphRateLimitError: HTTP 429.
+            MicrosoftGraphRateLimitError: HTTP 429, or a back-off is in effect.
             MicrosoftGraphError: Any other non-2xx response.
         """
+        self._check_throttle()
         url = f"{GRAPH_BASE_URL}{path}"
-        resp = await self._session.async_request(method, url, **kwargs)
+        resp = await self._send(method, url, **kwargs)
 
         if resp.status == 401:
             raise MicrosoftGraphAuthError(f"Unauthorized (401) calling {method} {url}")
         if resp.status == 429:
-            retry_after = int(resp.headers.get("Retry-After", 60))
             raise MicrosoftGraphRateLimitError(
                 f"Rate limited (429) calling {method} {url}",
-                retry_after=retry_after,
+                retry_after=_parse_retry_after(resp.headers.get("Retry-After")),
             )
         if not resp.ok:
             body = await resp.text()
@@ -114,17 +189,17 @@ class MicrosoftGraphClient:
         next_url: str | None = f"{GRAPH_BASE_URL}{path}"
 
         while next_url:
-            resp = await self._session.async_request("GET", next_url, **kwargs)
+            self._check_throttle()
+            resp = await self._send("GET", next_url, **kwargs)
 
             if resp.status == 401:
                 raise MicrosoftGraphAuthError(
                     f"Unauthorized (401) fetching paged results from {next_url}"
                 )
             if resp.status == 429:
-                retry_after = int(resp.headers.get("Retry-After", 60))
                 raise MicrosoftGraphRateLimitError(
-                    f"Rate limited (429) fetching paged results",
-                    retry_after=retry_after,
+                    "Rate limited (429) fetching paged results",
+                    retry_after=_parse_retry_after(resp.headers.get("Retry-After")),
                 )
             if not resp.ok:
                 body = await resp.text()

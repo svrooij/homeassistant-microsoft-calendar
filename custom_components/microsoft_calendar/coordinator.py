@@ -10,7 +10,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import MicrosoftGraphAuthError, MicrosoftGraphClient, MicrosoftGraphError
+from .api import (
+    MicrosoftGraphAuthError,
+    MicrosoftGraphClient,
+    MicrosoftGraphError,
+    MicrosoftGraphRateLimitError,
+)
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,7 +29,7 @@ class MicrosoftCalendarCoordinator(DataUpdateCoordinator[CalendarData]):
 
     Each refresh retrieves the full calendar list from Microsoft Graph.
     Individual event fetches are performed on-demand by the CalendarEntity
-    (via async_get_events) and are not cached here.
+    (via async_get_events) and are cached briefly there.
     """
 
     def __init__(
@@ -57,6 +62,19 @@ class MicrosoftCalendarCoordinator(DataUpdateCoordinator[CalendarData]):
             # prompt the user to re-authenticate — no manual handling needed.
             raise ConfigEntryAuthFailed(
                 f"Microsoft credentials expired or revoked: {err}"
+            ) from err
+        except MicrosoftGraphRateLimitError as err:
+            # The calendar list rarely changes. While throttled, keep the last
+            # known list so the entities stay available instead of flipping
+            # to unavailable until the next successful poll.
+            if self.data is not None:
+                _LOGGER.debug(
+                    "Throttled by Microsoft Graph; keeping previous calendar list: %s",
+                    err,
+                )
+                return self.data
+            raise UpdateFailed(
+                f"Error communicating with Microsoft Graph: {err}"
             ) from err
         except MicrosoftGraphError as err:
             raise UpdateFailed(

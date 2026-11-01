@@ -227,3 +227,96 @@ def test_empty_hex_color_gives_none():
     cal_data = {"id": "cal-1", "name": "Work", "hexColor": ""}
     entity = MicrosoftCalendarEntity(coordinator, client, entry, cal_data)
     assert entity._attr_initial_color is None
+
+
+# ---------------------------------------------------------------------------
+# Event cache and throttle fallback
+# ---------------------------------------------------------------------------
+
+
+def _make_entity(client):
+    from custom_components.microsoft_calendar.calendar import MicrosoftCalendarEntity
+
+    coordinator = MagicMock()
+    coordinator.data = []
+    entry = MagicMock()
+    entry.entry_id = "entry-1"
+    entry.data = {}
+    return MicrosoftCalendarEntity(
+        coordinator, client, entry, {"id": "cal-1", "name": "Work"}
+    )
+
+
+_RAW_EVENT = {
+    "id": "event-1",
+    "subject": "Standup",
+    "start": {"dateTime": "2024-06-10T09:00:00.0000000", "timeZone": "UTC"},
+    "end": {"dateTime": "2024-06-10T09:15:00.0000000", "timeZone": "UTC"},
+    "isAllDay": False,
+}
+
+_MONTH_START = datetime(2024, 6, 1, tzinfo=timezone.utc)
+_MONTH_END = datetime(2024, 7, 1, tzinfo=timezone.utc)
+
+
+async def test_get_events_is_cached():
+    """Repeated requests for the same range call Graph only once."""
+    client = MagicMock()
+    client.async_list_calendar_events = AsyncMock(return_value=[_RAW_EVENT])
+    entity = _make_entity(client)
+
+    first = await entity.async_get_events(None, _MONTH_START, _MONTH_END)
+    second = await entity.async_get_events(None, _MONTH_START, _MONTH_END)
+
+    assert [ev.summary for ev in first] == ["Standup"]
+    assert second == first
+    assert client.async_list_calendar_events.await_count == 1
+
+
+async def test_sub_range_served_from_cached_wider_range():
+    """A narrower range inside a fresh cached range needs no Graph call."""
+    client = MagicMock()
+    client.async_list_calendar_events = AsyncMock(return_value=[_RAW_EVENT])
+    entity = _make_entity(client)
+
+    await entity.async_get_events(None, _MONTH_START, _MONTH_END)
+    day = await entity.async_get_events(
+        None,
+        datetime(2024, 6, 10, tzinfo=timezone.utc),
+        datetime(2024, 6, 11, tzinfo=timezone.utc),
+    )
+    assert [ev.summary for ev in day] == ["Standup"]
+    assert client.async_list_calendar_events.await_count == 1
+
+
+async def test_throttled_returns_last_known_events(monkeypatch):
+    """When Graph throttles, stale cached events are returned instead of []."""
+    from custom_components.microsoft_calendar import calendar as calendar_module
+    from custom_components.microsoft_calendar.api import MicrosoftGraphRateLimitError
+
+    clock = [1000.0]
+    monkeypatch.setattr(calendar_module.time, "monotonic", lambda: clock[0])
+
+    client = MagicMock()
+    client.async_list_calendar_events = AsyncMock(return_value=[_RAW_EVENT])
+    entity = _make_entity(client)
+    await entity.async_get_events(None, _MONTH_START, _MONTH_END)
+
+    clock[0] += calendar_module._EVENT_CACHE_TTL_SECONDS + 1
+    client.async_list_calendar_events.side_effect = MicrosoftGraphRateLimitError(
+        "throttled", retry_after=30
+    )
+    events = await entity.async_get_events(None, _MONTH_START, _MONTH_END)
+    assert [ev.summary for ev in events] == ["Standup"]
+    assert client.async_list_calendar_events.await_count == 2
+
+
+async def test_throttled_without_cache_returns_empty():
+    from custom_components.microsoft_calendar.api import MicrosoftGraphRateLimitError
+
+    client = MagicMock()
+    client.async_list_calendar_events = AsyncMock(
+        side_effect=MicrosoftGraphRateLimitError("throttled", retry_after=30)
+    )
+    entity = _make_entity(client)
+    assert await entity.async_get_events(None, _MONTH_START, _MONTH_END) == []
