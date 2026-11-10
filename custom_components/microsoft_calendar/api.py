@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from math import ceil
+from time import monotonic
 from typing import Any
 
 from homeassistant.helpers.config_entry_oauth2_flow import OAuth2Session
 
-from .const import GRAPH_BASE_URL
+from .const import DEFAULT_EVENT_CACHE_DURATION, GRAPH_BASE_URL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +52,49 @@ class MicrosoftGraphRateLimitError(MicrosoftGraphError):
         self.retry_after = retry_after
 
 
+def _retry_after_seconds(headers: Any) -> int:
+    """Return the delay requested by Graph's Retry-After header."""
+    retry_after = headers.get("Retry-After", "60")
+    try:
+        return max(0, int(retry_after))
+    except (TypeError, ValueError):
+        try:
+            retry_at = parsedate_to_datetime(retry_after)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            return max(0, ceil((retry_at - datetime.now(timezone.utc)).total_seconds()))
+        except (TypeError, ValueError, OverflowError):
+            return 60
+
+
+def _as_utc_datetime(value: str | datetime) -> datetime:
+    """Parse a Graph date/time value and normalize it to UTC."""
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _event_interval(event: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    """Return an event's start and end as UTC datetimes."""
+    try:
+        start = event["start"]
+        end = event["end"]
+        return (
+            _as_utc_datetime(start.get("date") or start["dateTime"]),
+            _as_utc_datetime(end.get("date") or end["dateTime"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _event_sort_key(event: dict[str, Any]) -> datetime:
+    """Return an event's start time for ordering cached events."""
+    interval = _event_interval(event)
+    return interval[0] if interval else datetime.max.replace(tzinfo=timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
@@ -61,8 +107,32 @@ class MicrosoftGraphClient:
     automatically before every request.
     """
 
-    def __init__(self, oauth_session: OAuth2Session) -> None:
+    def __init__(
+        self,
+        oauth_session: OAuth2Session,
+        cache_duration: int = DEFAULT_EVENT_CACHE_DURATION,
+    ) -> None:
         self._session = oauth_session
+        self._cache_duration = cache_duration
+        self._event_cache: dict[
+            tuple[str, str, str], tuple[float, list[dict[str, Any]]]
+        ] = {}
+        self._rate_limited_until = 0.0
+
+    def _check_rate_limit(self) -> None:
+        """Prevent requests to Graph while the account-wide cooldown is active."""
+        remaining = self._rate_limited_until - monotonic()
+        if remaining > 0:
+            raise MicrosoftGraphRateLimitError(
+                "Rate limited (429); waiting for Microsoft Graph Retry-After",
+                retry_after=ceil(remaining),
+            )
+
+    def _set_rate_limit(self, retry_after: int) -> None:
+        """Block all requests from this client for the requested delay."""
+        self._rate_limited_until = max(
+            self._rate_limited_until, monotonic() + retry_after
+        )
 
     # ------------------------------------------------------------------
     # Low-level helpers
@@ -86,13 +156,15 @@ class MicrosoftGraphClient:
             MicrosoftGraphRateLimitError: HTTP 429.
             MicrosoftGraphError: Any other non-2xx response.
         """
+        self._check_rate_limit()
         url = f"{GRAPH_BASE_URL}{path}"
         resp = await self._session.async_request(method, url, **kwargs)
 
         if resp.status == 401:
             raise MicrosoftGraphAuthError(f"Unauthorized (401) calling {method} {url}")
         if resp.status == 429:
-            retry_after = int(resp.headers.get("Retry-After", 60))
+            retry_after = _retry_after_seconds(resp.headers)
+            self._set_rate_limit(retry_after)
             raise MicrosoftGraphRateLimitError(
                 f"Rate limited (429) calling {method} {url}",
                 retry_after=retry_after,
@@ -114,6 +186,7 @@ class MicrosoftGraphClient:
         next_url: str | None = f"{GRAPH_BASE_URL}{path}"
 
         while next_url:
+            self._check_rate_limit()
             resp = await self._session.async_request("GET", next_url, **kwargs)
 
             if resp.status == 401:
@@ -121,7 +194,8 @@ class MicrosoftGraphClient:
                     f"Unauthorized (401) fetching paged results from {next_url}"
                 )
             if resp.status == 429:
-                retry_after = int(resp.headers.get("Retry-After", 60))
+                retry_after = _retry_after_seconds(resp.headers)
+                self._set_rate_limit(retry_after)
                 raise MicrosoftGraphRateLimitError(
                     f"Rate limited (429) fetching paged results",
                     retry_after=retry_after,
@@ -184,18 +258,38 @@ class MicrosoftGraphClient:
         # Graph requires ISO 8601 with UTC offset, e.g. "2024-06-01T00:00:00+00:00"
         start_str = start_dt.isoformat()
         end_str = end_dt.isoformat()
+        cache_key = (
+            calendar_id,
+            _as_utc_datetime(start_dt).isoformat(),
+            _as_utc_datetime(end_dt).isoformat(),
+        )
+        cached = self._event_cache.get(cache_key)
+        if cached and cached[0] > monotonic():
+            return cached[1]
 
         _LOGGER.debug("Loading events from calendar %s", calendar_id)
-        return await self._get_all_pages(
-            f"/me/calendars/{calendar_id}/calendarView",
-            params={
-                "startDateTime": start_str,
-                "endDateTime": end_str,
-                "top": 100,
-                "$select": _EVENT_SELECT,
-                "$orderby": "start/dateTime",
-            },
-        )
+        try:
+            events = await self._get_all_pages(
+                f"/me/calendars/{calendar_id}/calendarView",
+                params={
+                    "startDateTime": start_str,
+                    "endDateTime": end_str,
+                    "top": 100,
+                    "$select": _EVENT_SELECT,
+                    "$orderby": "start/dateTime",
+                },
+            )
+        except MicrosoftGraphRateLimitError:
+            if cached:
+                return cached[1]
+            raise
+
+        if self._cache_duration:
+            self._event_cache[cache_key] = (
+                monotonic() + self._cache_duration,
+                events,
+            )
+        return events
 
     async def async_get_event(self, event_id: str) -> dict[str, Any]:
         """Fetch a single event by its Graph event ID."""
@@ -209,11 +303,28 @@ class MicrosoftGraphClient:
         self, calendar_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
         """Create a new event in the given calendar."""
-        return await self._request(
+        event = await self._request(
             "POST",
             f"/me/calendars/{calendar_id}/events",
             json=payload,
         )
+        if self._cache_duration and isinstance(event, dict):
+            interval = _event_interval(event)
+            if interval:
+                event_start, event_end = interval
+                for (cached_calendar, start, end), (_expires_at, events) in (
+                    self._event_cache.items()
+                ):
+                    if cached_calendar != calendar_id:
+                        continue
+                    range_start = _as_utc_datetime(start)
+                    range_end = _as_utc_datetime(end)
+                    if event_start >= range_end or event_end <= range_start:
+                        continue
+                    if not any(item.get("id") == event.get("id") for item in events):
+                        events.append(event)
+                        events.sort(key=_event_sort_key)
+        return event
 
     async def async_update_event(
         self, event_id: str, payload: dict[str, Any]

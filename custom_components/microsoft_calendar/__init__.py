@@ -15,9 +15,11 @@ from homeassistant.helpers.typing import ConfigType
 
 from .api import MicrosoftGraphClient
 from .const import (
+    CONF_EVENT_CACHE_DURATION,
     DATA_CLIENT,
     DATA_COORDINATOR,
     DEFAULT_CLIENT_ID,
+    DEFAULT_EVENT_CACHE_DURATION,
     DOMAIN,
     OAUTH2_AUTHORIZE,
     OAUTH2_TOKEN,
@@ -72,7 +74,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     else:
         _LOGGER.info("Integration started with custom app")
     oauth_session = OAuth2Session(hass, entry, implementation)
-    client = MicrosoftGraphClient(oauth_session)
+    client = MicrosoftGraphClient(
+        oauth_session,
+        cache_duration=entry.options.get(
+            CONF_EVENT_CACHE_DURATION, DEFAULT_EVENT_CACHE_DURATION
+        ),
+    )
 
     coordinator = MicrosoftCalendarCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()

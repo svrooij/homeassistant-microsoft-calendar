@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 
@@ -171,3 +171,91 @@ async def test_list_calendar_events_429_carries_retry_after(client, mock_session
     with pytest.raises(MicrosoftGraphRateLimitError) as exc_info:
         await client.async_list_calendar_events("cal-1", start, end)
     assert exc_info.value.retry_after == 120
+
+
+async def test_list_calendar_events_uses_cache(client, mock_session):
+    mock_session.async_request.return_value = MockResponse(
+        200, {"value": [{"id": "event-1"}]}
+    )
+    start = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 6, 2, tzinfo=timezone.utc)
+
+    first = await client.async_list_calendar_events("cal-1", start, end)
+    second = await client.async_list_calendar_events("cal-1", start, end)
+
+    assert first == second == [{"id": "event-1"}]
+    mock_session.async_request.assert_awaited_once()
+
+
+async def test_list_calendar_events_refetches_after_cache_expires(
+    client, mock_session
+):
+    mock_session.async_request.side_effect = [
+        MockResponse(200, {"value": [{"id": "first"}]}),
+        MockResponse(200, {"value": [{"id": "second"}]}),
+    ]
+    start = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 6, 2, tzinfo=timezone.utc)
+
+    with patch(
+        "custom_components.microsoft_calendar.api.monotonic",
+        side_effect=[10, 10, 20, 311, 311, 311],
+    ):
+        first = await client.async_list_calendar_events("cal-1", start, end)
+        cached = await client.async_list_calendar_events("cal-1", start, end)
+        refreshed = await client.async_list_calendar_events("cal-1", start, end)
+
+    assert first == cached == [{"id": "first"}]
+    assert refreshed == [{"id": "second"}]
+    assert mock_session.async_request.await_count == 2
+
+
+async def test_rate_limit_serves_stale_cache_and_blocks_other_requests(
+    client, mock_session
+):
+    start = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 6, 2, tzinfo=timezone.utc)
+    cache_key = ("cal-1", start.isoformat(), end.isoformat())
+    stale_events = [{"id": "stale-event"}]
+    client._event_cache[cache_key] = (0, stale_events)
+    mock_session.async_request.return_value = MockResponse(
+        429, headers={"Retry-After": "120"}
+    )
+
+    result = await client.async_list_calendar_events("cal-1", start, end)
+    assert result == stale_events
+
+    with pytest.raises(MicrosoftGraphRateLimitError) as exc_info:
+        await client.async_list_calendars()
+    assert exc_info.value.retry_after == 120
+    mock_session.async_request.assert_awaited_once()
+
+
+async def test_create_event_updates_only_matching_cached_ranges(client, mock_session):
+    start = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 6, 2, tzinfo=timezone.utc)
+    other_start = datetime(2024, 6, 3, tzinfo=timezone.utc)
+    other_end = datetime(2024, 6, 4, tzinfo=timezone.utc)
+    mock_session.async_request.side_effect = [
+        MockResponse(200, {"value": [{"id": "existing"}]}),
+        MockResponse(200, {"value": []}),
+    ]
+    first_range = await client.async_list_calendar_events("cal-1", start, end)
+    second_range = await client.async_list_calendar_events(
+        "cal-1", other_start, other_end
+    )
+
+    created_event = {
+        "id": "created",
+        "subject": "New event",
+        "start": {"dateTime": "2024-06-01T12:00:00", "timeZone": "UTC"},
+        "end": {"dateTime": "2024-06-01T13:00:00", "timeZone": "UTC"},
+    }
+    create_response = MockResponse(201, created_event)
+    create_response.content_length = 1
+    mock_session.async_request.side_effect = None
+    mock_session.async_request.return_value = create_response
+    await client.async_create_event("cal-1", {"subject": "New event"})
+
+    assert [event["id"] for event in first_range] == ["existing", "created"]
+    assert second_range == []

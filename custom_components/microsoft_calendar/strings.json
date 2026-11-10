@@ -30,5 +30,18 @@
             "reauth_successful": "Re-authentication was successful.",
             "wrong_account": "The account used to re-authenticate does not match the configured account."
         }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Event cache",
+                "data": {
+                    "event_cache_duration": "Cache duration (seconds)"
+                },
+                "data_description": {
+                    "event_cache_duration": "How long to reuse event results. Set to 0 to disable caching."
+                }
+            }
+        }
     }
 }
