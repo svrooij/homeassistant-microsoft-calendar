@@ -89,12 +89,6 @@ def _event_interval(event: dict[str, Any]) -> tuple[datetime, datetime] | None:
         return None
 
 
-def _event_sort_key(event: dict[str, Any]) -> datetime:
-    """Return an event's start time for ordering cached events."""
-    interval = _event_interval(event)
-    return interval[0] if interval else datetime.max.replace(tzinfo=timezone.utc)
-
-
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
@@ -322,8 +316,16 @@ class MicrosoftGraphClient:
                     if event_start >= range_end or event_end <= range_start:
                         continue
                     if not any(item.get("id") == event.get("id") for item in events):
-                        events.append(event)
-                        events.sort(key=_event_sort_key)
+                        insert_at = len(events)
+                        for index, cached_event in enumerate(events):
+                            cached_interval = _event_interval(cached_event)
+                            if (
+                                cached_interval
+                                and cached_interval[0] > event_start
+                            ):
+                                insert_at = index
+                                break
+                        events.insert(insert_at, event)
         return event
 
     async def async_update_event(
