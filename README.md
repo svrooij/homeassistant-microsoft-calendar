@@ -133,6 +133,14 @@ Your choice whether or not you want to give this app Read or Read-Write access t
 - **No push notifications** — the integration polls Microsoft Graph every 15 minutes.
 - **Shared calendars** — visible only if they appear in the signed-in user's calendar list.
 
+## Troubleshooting authentication
+
+Enable [debug logging](https://www.home-assistant.io/docs/configuration/troubleshooting/#enabling-debug-logging) for Microsoft Calendar to see the token expiry and remaining lifetime after sign-in and refresh. Home Assistant stores the expiry as a Unix timestamp calculated from Microsoft's `expires_in` response and automatically refreshes the token before it expires.
+
+Expiry timestamps in these messages use UTC (`+00:00`), while Home Assistant's log prefix may use your local timezone. For example, a log at `15:19:40+01:00` with a token valid until `15:19:39+00:00` means there are almost 60 minutes remaining, not that the token has expired.
+
+A Microsoft Graph HTTP 401 means the access token was rejected; it does not by itself prove that the token expired. If reauthentication repeatedly succeeds but calendar setup still returns 401, report the expiry and remaining-lifetime log messages and whether you use the built-in or a custom app. Never share access tokens, refresh tokens, or ID tokens.
+
 
 [hacs-badge]: https://img.shields.io/badge/HACS-default-blue.svg?style=for-the-badge&logo=homeassistantcommunitystore&logoColor=white
 [hacs-url]: https://github.com/hacs/integration
