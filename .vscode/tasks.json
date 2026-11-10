@@ -1,0 +1,26 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Link custom integrations",
+            "type": "shell",
+            "command": "if [[ ! -e \"${workspaceFolder}/config/custom_components\" ]]; then ln -s ../custom_components \"${workspaceFolder}/config/custom_components\"; fi",
+            "problemMatcher": []
+        },
+        {
+            "label": "Reset Home Assistant config",
+            "detail": "Stop Home Assistant first. Deletes all config data, including accounts and integrations, except configuration.yaml and configuration.yml.",
+            "type": "process",
+            "command": "find",
+            "args": [
+                "${workspaceFolder}/config",
+                "-mindepth", "1",
+                "-maxdepth", "1",
+                "!", "-name", "configuration.yaml",
+                "!", "-name", "configuration.yml",
+                "-exec", "rm", "-rf", "--", "{}", "+"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

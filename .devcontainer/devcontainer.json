@@ -43,7 +43,7 @@
         "python.analysis.extraPaths": [
           "/home/vscode/.local/lib/python3.14/site-packages/"
         ],
-        "python.defaultInterpreterPath": "/usr/bin/python3"
+        "python.defaultInterpreterPath": "/usr/local/bin/python3"
       }
     }
   },

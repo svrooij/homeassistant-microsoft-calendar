@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import logging
 
-from .application_credentials import MicrosoftCalendarOAuth2Implementation
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_entry_oauth2_flow, config_validation as cv
+from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.config_entry_oauth2_flow import (
     OAuth2Session,
 )
 from homeassistant.helpers.typing import ConfigType
 
 from .api import MicrosoftGraphClient
+from .application_credentials import MicrosoftCalendarOAuth2Implementation
 from .const import (
     CONF_EVENT_CACHE_DURATION,
     DATA_CLIENT,

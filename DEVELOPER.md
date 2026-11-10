@@ -7,6 +7,9 @@ The repository includes a VS Code dev container with Home Assistant pre-installe
 ```bash
 # Open in dev container, then:
 
+# Expose the integration to Home Assistant (F5 does this automatically)
+if [[ ! -e config/custom_components ]]; then ln -s ../custom_components config/custom_components; fi
+
 # Run Home Assistant
 python3 -m homeassistant --debug -c config --skip-pip
 

@@ -191,7 +191,7 @@ class MicrosoftGraphClient:
                 retry_after = _retry_after_seconds(resp.headers)
                 self._set_rate_limit(retry_after)
                 raise MicrosoftGraphRateLimitError(
-                    f"Rate limited (429) fetching paged results",
+                    "Rate limited (429) fetching paged results",
                     retry_after=retry_after,
                 )
             if not resp.ok:
@@ -306,9 +306,10 @@ class MicrosoftGraphClient:
             interval = _event_interval(event)
             if interval:
                 event_start, event_end = interval
-                for (cached_calendar, start, end), (_expires_at, events) in (
-                    self._event_cache.items()
-                ):
+                for (cached_calendar, start, end), (
+                    _expires_at,
+                    events,
+                ) in self._event_cache.items():
                     if cached_calendar != calendar_id:
                         continue
                     range_start = _as_utc_datetime(start)
@@ -319,10 +320,7 @@ class MicrosoftGraphClient:
                         insert_at = len(events)
                         for index, cached_event in enumerate(events):
                             cached_interval = _event_interval(cached_event)
-                            if (
-                                cached_interval
-                                and cached_interval[0] > event_start
-                            ):
+                            if cached_interval and cached_interval[0] > event_start:
                                 insert_at = index
                                 break
                         events.insert(insert_at, event)

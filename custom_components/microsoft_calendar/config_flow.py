@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, OptionsFlow, SOURCE_REAUTH
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.selector import (
