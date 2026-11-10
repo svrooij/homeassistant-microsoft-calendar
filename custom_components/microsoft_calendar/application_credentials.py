@@ -46,8 +46,9 @@ class MicrosoftCalendarOAuth2Implementation(LocalOAuth2ImplementationWithPkce):
         expires_at: int | None = new_token.get("expires_at")
         if expires_at is not None:
             _LOGGER.debug(
-                "Token refreshed; valid until %s",
+                "Token refreshed; valid until %s (%.0f seconds remaining)",
                 datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+                expires_at - datetime.now(timezone.utc).timestamp(),
             )
         else:
             _LOGGER.debug("Token refreshed")

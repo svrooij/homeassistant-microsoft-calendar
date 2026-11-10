@@ -153,8 +153,9 @@ class MicrosoftCalendarFlowHandler(
         token_expires_at: int | None = data.get("token", {}).get("expires_at")
         if token_expires_at is not None:
             _LOGGER.debug(
-                "Token valid until %s",
+                "Token valid until %s (%.0f seconds remaining)",
                 datetime.fromtimestamp(token_expires_at, tz=timezone.utc).isoformat(),
+                token_expires_at - datetime.now(timezone.utc).timestamp(),
             )
 
         # oid is the stable object ID for the user in their tenant.
