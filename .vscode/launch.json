@@ -9,13 +9,16 @@
             "type": "debugpy",
             "request": "launch",
             "module": "homeassistant",
+            "python": "/usr/local/bin/python3",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Link custom integrations",
             // justMyCode: true = only instrument code in the workspace (custom_components/)
             // This prevents debugpy from tracing all of HA's internals and blocking the event loop
             "justMyCode": true,
             "args": [
                 "--debug",
                 "-c",
-                "config",
+                "${workspaceFolder}/config",
                 "--skip-pip"
             ]
         },
@@ -24,13 +27,16 @@
             "type": "debugpy",
             "request": "launch",
             "module": "homeassistant",
+            "python": "/usr/local/bin/python3",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Link custom integrations",
             // justMyCode: false lets you step into HA's own code, but causes significant
             // event loop lag which can stall the UI loading screen
             "justMyCode": false,
             "args": [
                 "--debug",
                 "-c",
-                "config",
+                "${workspaceFolder}/config",
                 "--skip-pip"
             ]
         }

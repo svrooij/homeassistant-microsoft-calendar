@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.microsoft_calendar.const import (
+    CONF_EVENT_CACHE_DURATION,
     DATA_CLIENT,
     DATA_COORDINATOR,
     DOMAIN,
@@ -19,6 +20,7 @@ def mock_config_entry():
     entry.entry_id = "test-entry-id"
     entry.title = "Ada Lovelace"
     entry.data = {"token": {"access_token": "tok", "refresh_token": "ref"}}
+    entry.options = {CONF_EVENT_CACHE_DURATION: 600}
     return entry
 
 
@@ -47,7 +49,7 @@ async def test_async_setup_entry_stores_data_and_forwards_platforms(
         patch(
             "custom_components.microsoft_calendar.MicrosoftGraphClient",
             return_value=MagicMock(),
-        ),
+        ) as client_factory,
         patch(
             "custom_components.microsoft_calendar.MicrosoftCalendarCoordinator",
             return_value=mock_coordinator,
@@ -60,6 +62,7 @@ async def test_async_setup_entry_stores_data_and_forwards_platforms(
     assert result is True
     assert DATA_CLIENT in hass.data[DOMAIN][mock_config_entry.entry_id]
     assert DATA_COORDINATOR in hass.data[DOMAIN][mock_config_entry.entry_id]
+    assert client_factory.call_args.kwargs["cache_duration"] == 600
     hass.config_entries.async_forward_entry_setups.assert_awaited_once()
 
 

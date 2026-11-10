@@ -9,9 +9,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import SOURCE_REAUTH
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry, OptionsFlow
+from homeassistant.core import callback
 from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -23,7 +27,9 @@ from .const import (
     CALENDAR_SCOPE_READ,
     CALENDAR_SCOPE_WRITE,
     CONF_CALENDAR_SCOPE,
+    CONF_EVENT_CACHE_DURATION,
     DEFAULT_CLIENT_ID,
+    DEFAULT_EVENT_CACHE_DURATION,
     DOMAIN,
     OAUTH2_AUTHORIZE,
     OAUTH2_TOKEN,
@@ -75,6 +81,12 @@ class MicrosoftCalendarFlowHandler(
     def logger(self) -> logging.Logger:
         """Return logger."""
         return _LOGGER
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow for this config entry."""
+        return MicrosoftCalendarOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         """Start the flow by asking the user to choose a calendar access level."""
@@ -196,3 +208,33 @@ class MicrosoftCalendarFlowHandler(
         if user_input is None:
             return self.async_show_form(step_id="reauth_confirm")
         return await self.async_step_pick_implementation()
+
+
+class MicrosoftCalendarOptionsFlow(OptionsFlow):
+    """Configure event caching for a Microsoft Calendar account."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Set the number of seconds event ranges are cached."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_EVENT_CACHE_DURATION,
+                        default=self.config_entry.options.get(
+                            CONF_EVENT_CACHE_DURATION, DEFAULT_EVENT_CACHE_DURATION
+                        ),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0,
+                            max=86400,
+                            step=1,
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    )
+                }
+            ),
+        )

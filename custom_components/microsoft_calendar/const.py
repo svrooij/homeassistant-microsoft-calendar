@@ -19,6 +19,8 @@ CALENDAR_SCOPE_WRITE = "Calendars.ReadWrite"
 
 # Config entry key that stores the chosen calendar scope
 CONF_CALENDAR_SCOPE = "calendar_scope"
+CONF_EVENT_CACHE_DURATION = "event_cache_duration"
+DEFAULT_EVENT_CACHE_DURATION = 300
 
 # Default scopes (base + read-only) – used as fallback
 SCOPES = SCOPES_BASE + [CALENDAR_SCOPE_READ]
